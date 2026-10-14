@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"html"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -29,6 +31,7 @@ type fakeS3 struct {
 	sync.Mutex
 	objects         map[string]storedObject
 	policy, website string
+	bucketACL       string
 	forbidden       bool
 	pages           int
 }
@@ -57,7 +60,21 @@ func (s *fakeS3) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/test-bucket/")
 	q := r.URL.Query()
+	if q.Has("acl") {
+		s.bucketACL = r.Header.Get("X-Amz-Acl")
+		return
+	}
 	if q.Has("policy") || q.Has("website") {
+		if r.Method == "GET" && q.Has("policy") {
+			if s.policy == "" {
+				w.WriteHeader(404)
+				io.WriteString(w, `<Error><Code>NoSuchBucketPolicy</Code></Error>`)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, s.policy)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		if q.Has("policy") {
 			s.policy = string(body)
@@ -177,7 +194,7 @@ func TestArchiveLifecycle(t *testing.T) {
 	if err := a.mksite(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(store.policy, "s3:GetObject") || !strings.Contains(store.website, "error.html") {
+	if store.bucketACL != "public-read" || !strings.Contains(store.policy, "s3:GetObject") || !strings.Contains(store.website, "error.html") {
 		t.Fatal("hosting not configured")
 	}
 	page := string(store.objects["album1.html"].body)
@@ -282,5 +299,37 @@ func TestErrors(t *testing.T) {
 	store.objects[photoPrefix("a")+"%2E%2E"] = storedObject{}
 	if err := a.download(ctx, "a", t.TempDir()); err == nil {
 		t.Fatal("unsafe filename accepted")
+	}
+}
+
+func TestMksitePreservesManagementPolicy(t *testing.T) {
+	a, store := testArchive(t)
+	store.policy = `{"Version":"2012-10-17","Statement":[{"Sid":"Owner","Effect":"Allow","Principal":{"CanonicalUser":"owner-id"},"Action":"s3:*","Resource":["arn:aws:s3:::test-bucket","arn:aws:s3:::test-bucket/*"]}]}`
+	for i := 0; i < 2; i++ {
+		if err := a.mksite(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		var policy struct{ Statement []map[string]any }
+		if err := json.Unmarshal([]byte(store.policy), &policy); err != nil {
+			t.Fatal(err)
+		}
+		if len(policy.Statement) != 2 || policy.Statement[0]["Sid"] != "Owner" || policy.Statement[1]["Sid"] != "PublicRead" {
+			t.Fatalf("management rule lost or read rule duplicated: %s", store.policy)
+		}
+	}
+}
+
+func TestMksiteKeepsPolicyOrder(t *testing.T) {
+	a, store := testArchive(t)
+	store.policy = `{"Version":"2012-10-17","Statement":[{"Sid":"PublicRead","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::test-bucket/*"},{"Sid":"Owner","Effect":"Allow","Principal":{"CanonicalUser":"owner-id"},"Action":"s3:*","Resource":["arn:aws:s3:::test-bucket","arn:aws:s3:::test-bucket/*"]}]}`
+	before := store.policy
+	if err := a.configurePublicRead(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var want, got any
+	json.Unmarshal([]byte(before), &want)
+	json.Unmarshal([]byte(store.policy), &got)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("policy changed on repeated publish: %s", store.policy)
 	}
 }

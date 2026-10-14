@@ -141,13 +141,11 @@ func (a *archive) delete(ctx context.Context, album, photo string) error {
 }
 
 func (a *archive) mksite(ctx context.Context) error {
-	// Bucket ACLs alone do not grant access to objects uploaded with private ACLs.
-	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":%q}]}`, "arn:aws:s3:::"+a.bucket+"/*")
-	_, err := a.client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String(a.bucket), Policy: aws.String(policy)})
-	if err != nil {
+	if err := a.configurePublicRead(ctx); err != nil {
 		return err
 	}
-	_, err = a.client.PutBucketWebsite(ctx, &s3.PutBucketWebsiteInput{Bucket: aws.String(a.bucket), WebsiteConfiguration: &types.WebsiteConfiguration{
+
+	_, err := a.client.PutBucketWebsite(ctx, &s3.PutBucketWebsiteInput{Bucket: aws.String(a.bucket), WebsiteConfiguration: &types.WebsiteConfiguration{
 		IndexDocument: &types.IndexDocument{Suffix: aws.String("index.html")}, ErrorDocument: &types.ErrorDocument{Key: aws.String("error.html")},
 	}})
 	if err != nil {

@@ -31,8 +31,11 @@ resource "yandex_iam_service_account_static_access_key" "cloudphoto" {
 }
 
 resource "yandex_storage_bucket" "photos" {
-  folder_id = var.folder_id
-  bucket    = var.bucket_name
+  access_key = yandex_iam_service_account_static_access_key.cloudphoto.access_key
+  secret_key = yandex_iam_service_account_static_access_key.cloudphoto.secret_key
+  folder_id  = var.folder_id
+  bucket     = var.bucket_name
+  acl        = "public-read"
 
   website {
     index_document = "index.html"
@@ -45,12 +48,30 @@ resource "yandex_storage_bucket" "photos" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = "s3:GetObject"
-      Resource  = "arn:aws:s3:::${var.bucket_name}/*"
-    }]
+    Statement = [
+      {
+        Sid       = "PublicRead"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "arn:aws:s3:::${var.bucket_name}/*"
+      },
+      {
+        Sid       = "ArchiveManagement"
+        Effect    = "Allow"
+        Principal = { CanonicalUser = yandex_iam_service_account.cloudphoto.id }
+        Action    = "s3:*"
+        Resource  = ["arn:aws:s3:::${var.bucket_name}", "arn:aws:s3:::${var.bucket_name}/*"]
+      },
+      {
+        Sid       = "CloudConsoleAccess"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = ["arn:aws:s3:::${var.bucket_name}", "arn:aws:s3:::${var.bucket_name}/*"]
+        Condition = { Bool = { "aws:PrincipalIsAWSService" = "true" } }
+      }
+    ]
   })
 
   lifecycle {
