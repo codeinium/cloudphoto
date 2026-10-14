@@ -73,12 +73,12 @@ func generateAlbumHTML(album string, photos []string) string {
         <div class="galleria">
 `, escapedAlbum, escapedAlbum))
 
-	encodedAlbum := url.PathEscape(album)
+	encodedAlbum := encodeName(album)
 	for _, photo := range photos {
-		encodedPhoto := url.PathEscape(photo)
+		encodedPhoto := encodeName(photo)
 		escapedPhoto := html.EscapeString(photo)
 		photoURL := "photos/" + url.PathEscape(encodedAlbum) + "/" + url.PathEscape(encodedPhoto)
-		b.WriteString(fmt.Sprintf("            <img src=\"%s\" data-title=\"%s\">\n", photoURL, escapedPhoto))
+		b.WriteString(fmt.Sprintf("            <img src=\"%s\" data-title=\"%s\">\n", html.EscapeString(photoURL), escapedPhoto))
 	}
 	b.WriteString(`        </div>
         <p>Вернуться на <a href="index.html">главную страницу</a> фотоархива</p>

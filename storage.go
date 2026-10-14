@@ -27,9 +27,20 @@ func newArchive(c settings) *archive {
 	return &archive{client, c.bucket}
 }
 
-func albumKey(album string) string        { return "albums/" + url.PathEscape(album) + "/" }
-func photoPrefix(album string) string     { return "photos/" + url.PathEscape(album) + "/" }
-func photoKey(album, photo string) string { return photoPrefix(album) + url.PathEscape(photo) }
+// Escape dot-only components as well: browsers normalize literal . and .. in paths.
+func encodeName(name string) string {
+	if name == "." {
+		return "%2E"
+	}
+	if name == ".." {
+		return "%2E%2E"
+	}
+	return url.PathEscape(name)
+}
+
+func albumKey(album string) string        { return "albums/" + encodeName(album) + "/" }
+func photoPrefix(album string) string     { return "photos/" + encodeName(album) + "/" }
+func photoKey(album, photo string) string { return photoPrefix(album) + encodeName(photo) }
 
 // Only a missing object is a missing album; authentication and transport errors propagate.
 func (a *archive) requireObject(ctx context.Context, key, message string) error {
