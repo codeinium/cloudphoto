@@ -1,0 +1,13 @@
+/cloudphoto
+/bin/
+.env
+.env.*
+!.env.example
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+.DS_Store
